@@ -5,6 +5,13 @@ struct SettingsView: View {
 
     private let delayOptions: [Double] = [0, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5]
     private let maxDisplayOptions: [Int] = [10, 20, 30, 50, 100, 0]
+    private let repoURL = URL(string: "https://github.com/Voltline/KagiPeek")!
+
+    private var appVersionText: String {
+        let shortVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知"
+        let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "未知"
+        return "v\(shortVersion) (Build \(buildVersion))"
+    }
 
     var body: some View {
         Form {
@@ -44,6 +51,22 @@ struct SettingsView: View {
                 Text(settings.launchAtLoginMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("关于") {
+                LabeledContent("版本号") {
+                    Text(appVersionText)
+                        .foregroundStyle(.secondary)
+                }
+
+                LabeledContent("GitHub") {
+                    Link("Voltline/KagiPeek", destination: repoURL)
+                }
+
+                LabeledContent("开源协议") {
+                    Text("GNU GPL v2.0")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)

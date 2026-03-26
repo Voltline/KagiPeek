@@ -9,6 +9,15 @@ final class KeyPrefixEngine: ObservableObject {
     @Published private(set) var statusText: String = "闲置中"
     @Published private(set) var activeAppName: String = "未知应用"
     @Published private(set) var activeBundleIdentifier: String?
+    @Published private(set) var accessibilityPermissionGranted: Bool = false
+
+    private let listeningStatusText = "全局监听中 (辅助功能已授权)"
+    private let gamePausedStatusText = "游戏应用前台，已暂停快捷键提示"
+    private let gameKeywords = [
+        "steam", "epic", "riot", "blizzard", "battle.net", "minecraft",
+        "unity", "unreal", "dota", "csgo", "counter-strike", "valorant",
+        "leagueoflegends", "genshin", "starcraft", "diablo", "overwatch", "game"
+    ]
 
     var currentPrefixLabel: String {
         currentPrefix.isEmpty ? "(no modifier active)" : displayLabel(for: currentPrefix)
@@ -19,7 +28,10 @@ final class KeyPrefixEngine: ObservableObject {
     private let trie = ShortcutTrie()
     private lazy var overlay = OverlayPanelController(engine: self)
     private var overlayDisplayTask: Task<Void, Never>?
+    private var permissionRetryTimer: Timer?
+    private var appActivationObserver: NSObjectProtocol?
     private var isOverlayVisible = false
+    private var isListenerRunning = false
     private var usageFrequency: [String: Int]
     private var lastRecordedUsageToken: String?
     private var lastRecordedAt: Date?
@@ -29,12 +41,21 @@ final class KeyPrefixEngine: ObservableObject {
     init(settings: AppSettings) {
         self.settings = settings
         self.usageFrequency = UserDefaults.standard.dictionary(forKey: usageDefaultsKey) as? [String: Int] ?? [:]
+        self.accessibilityPermissionGranted = GlobalKeyListener.hasAccessibilityPermission()
         ShortcutStore.seedShortcuts.forEach { trie.insert($0) }
+        setupActiveAppObserver()
+        refreshActiveApp()
 
         listener.onSnapshot = { [weak self] snapshot in
             DispatchQueue.main.async {
                 self?.handle(snapshot: snapshot)
             }
+        }
+    }
+
+    deinit {
+        if let appActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver)
         }
     }
 
@@ -51,36 +72,93 @@ final class KeyPrefixEngine: ObservableObject {
     }
 
     func start() {
+        startListener(promptForAccessibility: true)
+    }
+
+    func requestAccessibilityAuthorization() {
+        accessibilityPermissionGranted = GlobalKeyListener.requestAccessibilityPermission()
+        retryStartIfNeeded()
+    }
+
+    func openAccessibilitySettings() {
+        guard
+            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    func retryStartIfNeeded() {
+        accessibilityPermissionGranted = GlobalKeyListener.hasAccessibilityPermission()
+        guard !isListenerRunning else { return }
+        if accessibilityPermissionGranted {
+            startListener(promptForAccessibility: false)
+        }
+    }
+
+    private func startListener(promptForAccessibility: Bool) {
         do {
-            try listener.start()
-            statusText = "全局监听中 (辅助功能已授权)"
+            try listener.start(promptForAccessibility: promptForAccessibility)
+            accessibilityPermissionGranted = true
+            isListenerRunning = true
+            stopPermissionRetryTimer()
+            statusText = listeningStatusText
         } catch {
+            accessibilityPermissionGranted = GlobalKeyListener.hasAccessibilityPermission()
+            isListenerRunning = false
             statusText = error.localizedDescription
             print("[KagiPeek] 监听器启动失败: \(error.localizedDescription)")
+            startPermissionRetryTimerIfNeeded()
         }
     }
 
     func stop() {
         listener.stop()
+        isListenerRunning = false
         statusText = "已停止"
         cancelPendingOverlayShow()
+        stopPermissionRetryTimer()
         hideOverlay()
     }
 
+    private func startPermissionRetryTimerIfNeeded() {
+        guard permissionRetryTimer == nil else { return }
+
+        permissionRetryTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.retryStartIfNeeded()
+            }
+        }
+    }
+
+    private func stopPermissionRetryTimer() {
+        permissionRetryTimer?.invalidate()
+        permissionRetryTimer = nil
+    }
+
     private func handle(snapshot: GlobalKeyEventSnapshot) {
+        if isGameAppActive() {
+            suppressOverlayAndCandidates()
+            statusText = gamePausedStatusText
+            return
+        }
+
+        if isListenerRunning && statusText == gamePausedStatusText {
+            statusText = listeningStatusText
+        }
+
         switch snapshot.type {
         case .modifierChanged:
-            if snapshot.modifiers.isEmpty {
-                currentPrefix = []
-                candidates = []
-                cancelPendingOverlayShow()
-                hideOverlay()
+            if snapshot.modifiers.isEmpty || isShiftOnly(snapshot.modifiers) {
+                suppressOverlayAndCandidates()
             } else {
                 update(prefix: snapshot.modifiers)
                 scheduleOverlayShowIfNeeded()
             }
         case .keyDown:
-            if snapshot.modifiers.isEmpty {
+            if snapshot.modifiers.isEmpty || isShiftOnly(snapshot.modifiers) {
                 return
             }
             let key = snapshot.key?.lowercased() ?? ""
@@ -93,11 +171,8 @@ final class KeyPrefixEngine: ObservableObject {
             }
             scheduleOverlayShowIfNeeded()
         case .keyUp:
-            if snapshot.modifiers.isEmpty {
-                currentPrefix = []
-                candidates = []
-                cancelPendingOverlayShow()
-                hideOverlay()
+            if snapshot.modifiers.isEmpty || isShiftOnly(snapshot.modifiers) {
+                suppressOverlayAndCandidates()
             } else {
                 update(prefix: snapshot.modifiers)
                 if isOverlayVisible {
@@ -108,7 +183,6 @@ final class KeyPrefixEngine: ObservableObject {
     }
 
     private func update(prefix: [String]) {
-        refreshActiveApp()
         currentPrefix = prefix
         candidates = trie
             .candidates(for: prefix)
@@ -141,6 +215,26 @@ final class KeyPrefixEngine: ObservableObject {
         let app = NSWorkspace.shared.frontmostApplication
         activeAppName = app?.localizedName ?? "未知应用"
         activeBundleIdentifier = app?.bundleIdentifier
+    }
+
+    private func setupActiveAppObserver() {
+        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.refreshActiveApp()
+
+                if self.isGameAppActive() {
+                    self.suppressOverlayAndCandidates()
+                    self.statusText = self.gamePausedStatusText
+                } else if self.isListenerRunning {
+                    self.statusText = self.listeningStatusText
+                }
+            }
+        }
     }
 
     private func showOverlay() {
@@ -213,5 +307,24 @@ final class KeyPrefixEngine: ObservableObject {
 
     private func persistUsageFrequency() {
         UserDefaults.standard.set(usageFrequency, forKey: usageDefaultsKey)
+    }
+
+    private func suppressOverlayAndCandidates() {
+        currentPrefix = []
+        candidates = []
+        cancelPendingOverlayShow()
+        hideOverlay()
+    }
+
+    private func isShiftOnly(_ modifiers: [String]) -> Bool {
+        modifiers.count == 1 && modifiers[0].lowercased() == "shift"
+    }
+
+    private func isGameAppActive() -> Bool {
+        let bundle = activeBundleIdentifier?.lowercased() ?? ""
+        let name = activeAppName.lowercased()
+        return gameKeywords.contains { keyword in
+            bundle.contains(keyword) || name.contains(keyword)
+        }
     }
 }

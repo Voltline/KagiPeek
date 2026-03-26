@@ -37,8 +37,8 @@ final class OverlayPanelController {
     private func positionPanel() {
         guard let screen = targetScreen() else { return }
         let visible = screen.visibleFrame
-        let width = min(max(visible.width * 0.2, 300), 780)
-        let height = min(max(visible.height * 0.7, 700), 900)
+        let width = min(max(visible.width * 0.25, 350), 780)
+        let height = min(max(visible.height * 0.5, 500), 900)
         let x = visible.minX + 24
         let y = visible.maxY - height - 24
         panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)

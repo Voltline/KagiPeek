@@ -11,4 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         engine.stop()
     }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        engine.retryStartIfNeeded()
+    }
 }

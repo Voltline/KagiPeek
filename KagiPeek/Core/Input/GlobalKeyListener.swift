@@ -39,8 +39,11 @@ final class GlobalKeyListener {
         stop()
     }
 
-    func start() throws {
-        guard Self.requestAccessibilityPermission() else {
+    func start(promptForAccessibility: Bool = true) throws {
+        let trusted = promptForAccessibility
+            ? Self.requestAccessibilityPermission()
+            : Self.hasAccessibilityPermission()
+        guard trusted else {
             throw GlobalKeyListenerError.accessibilityPermissionDenied
         }
 
@@ -122,5 +125,9 @@ final class GlobalKeyListener {
     static func requestAccessibilityPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
+    }
+
+    static func hasAccessibilityPermission() -> Bool {
+        AXIsProcessTrusted()
     }
 }

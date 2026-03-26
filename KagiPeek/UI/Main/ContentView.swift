@@ -32,6 +32,25 @@ struct ContentView: View {
                     .font(.system(.body, design: .monospaced))
             }
 
+            if !engine.accessibilityPermissionGranted {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("尚未授予辅助功能权限，无法监听全局快捷键。")
+                        .foregroundStyle(.orange)
+
+                    HStack(spacing: 10) {
+                        Button("请求辅助功能授权") {
+                            engine.requestAccessibilityAuthorization()
+                        }
+                        Button("打开系统设置") {
+                            engine.openAccessibilitySettings()
+                        }
+                    }
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
             Text("快捷键候选")
                 .font(.headline.bold())
 

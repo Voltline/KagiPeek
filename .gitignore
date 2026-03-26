@@ -64,5 +64,6 @@ fastlane/test_output
 .DS_Store
 
 # local release automation
-scripts/release.sh
+scripts/*
 build/*
+design/*
