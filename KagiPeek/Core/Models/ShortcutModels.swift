@@ -45,6 +45,15 @@ struct ShortcutItem: Hashable, Identifiable {
     }
 }
 
+struct ShortcutUsageStat: Identifiable, Hashable {
+    let shortcut: ShortcutItem
+    let learnedCount: Int
+
+    var id: String { shortcut.id }
+    var seedCount: Int { shortcut.usageCount }
+    var effectiveCount: Int { seedCount + learnedCount }
+}
+
 extension Array where Element == String {
     func normalizedPrefixTokens() -> [String] {
         self.map { $0.lowercased() }

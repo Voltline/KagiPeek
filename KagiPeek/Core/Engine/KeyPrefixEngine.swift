@@ -32,7 +32,7 @@ final class KeyPrefixEngine: ObservableObject {
     private var appActivationObserver: NSObjectProtocol?
     private var isOverlayVisible = false
     private var isListenerRunning = false
-    private var usageFrequency: [String: Int]
+    @Published private var usageFrequency: [String: Int]
     private var lastRecordedUsageToken: String?
     private var lastRecordedAt: Date?
 
@@ -49,6 +49,12 @@ final class KeyPrefixEngine: ObservableObject {
         listener.onSnapshot = { [weak self] snapshot in
             DispatchQueue.main.async {
                 self?.handle(snapshot: snapshot)
+            }
+        }
+
+        listener.onInterruption = { [weak self] in
+            DispatchQueue.main.async {
+                self?.suppressOverlayAndCandidates()
             }
         }
     }
@@ -69,6 +75,30 @@ final class KeyPrefixEngine: ObservableObject {
             return candidates
         }
         return Array(candidates.prefix(maxCount))
+    }
+
+    var usageStats: [ShortcutUsageStat] {
+        ShortcutStore.seedShortcuts
+            .compactMap { shortcut in
+                let learnedCount = usageFrequency[shortcut.id] ?? 0
+                guard learnedCount > 0 else {
+                    return nil
+                }
+                return ShortcutUsageStat(shortcut: shortcut, learnedCount: learnedCount)
+            }
+            .sorted { lhs, rhs in
+                if lhs.learnedCount == rhs.learnedCount {
+                    if lhs.effectiveCount == rhs.effectiveCount {
+                        return lhs.shortcut.keys.lexicographicallyPrecedes(rhs.shortcut.keys)
+                    }
+                    return lhs.effectiveCount > rhs.effectiveCount
+                }
+                return lhs.learnedCount > rhs.learnedCount
+            }
+    }
+
+    var totalLearnedUsageCount: Int {
+        usageFrequency.values.reduce(0, +)
     }
 
     func start() {
@@ -164,20 +194,23 @@ final class KeyPrefixEngine: ObservableObject {
             let key = snapshot.key?.lowercased() ?? ""
             if key.isEmpty {
                 update(prefix: snapshot.modifiers)
+                scheduleOverlayShowIfNeeded()
             } else {
                 let exactKeys = snapshot.modifiers + [key]
                 update(prefix: exactKeys)
                 recordUsageIfExactMatch(for: exactKeys)
+                suppressOverlayAndCandidates()
             }
-            scheduleOverlayShowIfNeeded()
         case .keyUp:
             if snapshot.modifiers.isEmpty || isShiftOnly(snapshot.modifiers) {
                 suppressOverlayAndCandidates()
             } else {
-                update(prefix: snapshot.modifiers)
-                if isOverlayVisible {
-                    showOverlay()
+                let key = snapshot.key?.lowercased() ?? ""
+                if !key.isEmpty {
+                    suppressOverlayAndCandidates()
+                    return
                 }
+                update(prefix: snapshot.modifiers)
             }
         }
     }
@@ -238,6 +271,7 @@ final class KeyPrefixEngine: ObservableObject {
     }
 
     private func showOverlay() {
+        guard !isOverlayVisible else { return }
         isOverlayVisible = true
         overlay.show()
     }

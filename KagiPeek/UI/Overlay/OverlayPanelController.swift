@@ -3,9 +3,13 @@ import SwiftUI
 
 final class OverlayPanelController {
     private let panel: NSPanel
+    private let settings: AppSettings
 
     init(engine: KeyPrefixEngine) {
-        let contentView = OverlayPanelView().environmentObject(engine)
+        settings = engine.settings
+        let contentView = OverlayPanelView()
+            .environmentObject(engine)
+            .environmentObject(settings)
         let hostingView = NSHostingView(rootView: contentView)
 
         panel = NSPanel(
@@ -37,7 +41,11 @@ final class OverlayPanelController {
     private func positionPanel() {
         guard let screen = targetScreen() else { return }
         let visible = screen.visibleFrame
-        let width = min(max(visible.width * 0.25, 350), 780)
+        let columnCount = settings.overlayColumnCount.columnCount
+        let widthFactor = settings.keyDisplayStyle == .symbols ? 0.06 : 0.12
+        let preferredWidth = visible.width * (0.18 + (Double(columnCount) * widthFactor))
+        let maxWidth = min(visible.width - 48, 1180)
+        let width = min(max(preferredWidth, 350), maxWidth)
         let height = min(max(visible.height * 0.5, 500), 900)
         let x = visible.minX + 24
         let y = visible.maxY - height - 24
@@ -57,7 +65,15 @@ final class OverlayPanelController {
 }
 
 struct OverlayPanelView: View {
-    @EnvironmentObject var engine: KeyPrefixEngine
+    @EnvironmentObject private var engine: KeyPrefixEngine
+    @EnvironmentObject private var settings: AppSettings
+
+    private var gridColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 180, maximum: .infinity), spacing: 14, alignment: .top),
+            count: settings.overlayColumnCount.columnCount
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -78,21 +94,26 @@ struct OverlayPanelView: View {
                     .foregroundStyle(.white.opacity(0.6))
             } else {
                 ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 8) {
+                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 12) {
                         ForEach(engine.visibleCandidates()) { item in
-                            HStack {
-                                Text(engine.displayLabel(for: item.keys))
-                                    .font(.system(.title3, design: .monospaced))
-                                Spacer()
-                                Text(item.category.label)
-                                    .font(.caption)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.white.opacity(0.14), in: Capsule())
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack() {
+                                    Text(engine.displayLabel(for: item.keys))
+                                        .font(.system(.title3, design: .monospaced))
+                                    Spacer()
+                                    Text(item.category.label)
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(.white.opacity(0.14), in: Capsule())
+                                }
                                 Text(item.desc)
-                                    .font(.title3)
+                                    .font(.system(.title3, design: .default))
                                     .foregroundStyle(.white.opacity(0.8))
                             }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .padding(10)
+                            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .foregroundStyle(.white)
                         }
                     }

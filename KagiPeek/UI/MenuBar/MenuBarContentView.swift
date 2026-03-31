@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarContentView: View {
@@ -7,11 +8,15 @@ struct MenuBarContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button("打开主界面") {
-                openWindow(id: "main")
+                activateApp {
+                    openWindow(id: "main")
+                }
             }
 
             Button("设置") {
-                openSettings()
+                activateApp {
+                    openSettings()
+                }
             }
 
             Divider()
@@ -22,6 +27,14 @@ struct MenuBarContentView: View {
         }
         .padding(.vertical, 4)
         .frame(minWidth: 180)
+    }
+
+    private func activateApp(_ action: @escaping () -> Void) {
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            action()
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 

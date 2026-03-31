@@ -30,6 +30,7 @@ enum GlobalKeyListenerError: LocalizedError {
 
 final class GlobalKeyListener {
     var onSnapshot: ((GlobalKeyEventSnapshot) -> Void)?
+    var onInterruption: (() -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -54,7 +55,9 @@ final class GlobalKeyListener {
         let events: CGEventMask =
             (1 << CGEventType.flagsChanged.rawValue) |
             (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue)
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.tapDisabledByTimeout.rawValue) |
+            (1 << CGEventType.tapDisabledByUserInput.rawValue)
 
         let callback: CGEventTapCallBack = { _, eventType, event, userInfo in
             guard let userInfo else {
@@ -69,7 +72,7 @@ final class GlobalKeyListener {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: events,
             callback: callback,
             userInfo: opaqueSelf
@@ -95,6 +98,7 @@ final class GlobalKeyListener {
         }
         eventTap = nil
         runLoopSource = nil
+        modifierState.reset()
     }
 
     private func handle(eventType: CGEventType, event: CGEvent) {
@@ -108,6 +112,12 @@ final class GlobalKeyListener {
             emit(.keyDown, key: KeyMapper.token(from: event))
         case .keyUp:
             emit(.keyUp, key: KeyMapper.token(from: event))
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            modifierState.reset()
+            onInterruption?()
+            if let eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+            }
         default:
             break
         }

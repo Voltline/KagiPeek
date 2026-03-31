@@ -24,6 +24,10 @@ struct ModifierStateMachine {
         ModifierToken.ordered.filter(active.contains).map(\.rawValue)
     }
 
+    mutating func reset() {
+        active.removeAll()
+    }
+
     static func tokens(from flags: CGEventFlags) -> Set<ModifierToken> {
         var result: Set<ModifierToken> = []
         if flags.contains(.maskCommand) { result.insert(.cmd) }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var engine: KeyPrefixEngine
     @EnvironmentObject private var settings: AppSettings
 
     private let delayOptions: [Double] = [0, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5]
@@ -11,6 +12,10 @@ struct SettingsView: View {
         let shortVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知"
         let buildVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "未知"
         return "v\(shortVersion) (Build \(buildVersion))"
+    }
+
+    private var usageStatsSummaryText: String {
+        "已学习 \(engine.usageStats.count) 个快捷键，共记录 \(engine.totalLearnedUsageCount) 次触发"
     }
 
     var body: some View {
@@ -26,6 +31,13 @@ struct SettingsView: View {
             Picker("按键显示风格", selection: $settings.keyDisplayStyle) {
                 ForEach(AppSettings.KeyDisplayStyle.allCases) { style in
                     Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("弹窗列数", selection: $settings.overlayColumnCount) {
+                ForEach(AppSettings.OverlayColumnCount.allCases) { columnCount in
+                    Text(columnCount.title).tag(columnCount)
                 }
             }
             .pickerStyle(.segmented)
@@ -53,6 +65,69 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("快捷键统计") {
+                Text(usageStatsSummaryText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                if engine.usageStats.isEmpty {
+                    ContentUnavailableView(
+                        "还没有统计数据",
+                        systemImage: "chart.bar.xaxis",
+                        description: Text("开始使用 KagiPeek 识别快捷键后，这里会显示你最常触发的组合键。")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                } else {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text("快捷键")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("学习次数")
+                                .frame(width: 72, alignment: .trailing)
+                            Text("排序总分")
+                                .frame(width: 72, alignment: .trailing)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 6)
+
+                        ForEach(engine.usageStats) { stat in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(engine.displayLabel(for: stat.shortcut.keys))
+                                        .font(.system(.body, design: .monospaced))
+                                    HStack(spacing: 6) {
+                                        Text(stat.shortcut.desc)
+                                        Text("·")
+                                        Text(stat.shortcut.category.label)
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Text("\(stat.learnedCount)")
+                                    .font(.system(.body, design: .monospaced))
+                                    .frame(width: 72, alignment: .trailing)
+
+                                Text("\(stat.effectiveCount)")
+                                    .font(.system(.body, design: .monospaced))
+                                    .frame(width: 72, alignment: .trailing)
+                            }
+                            .padding(.vertical, 8)
+
+                            if stat.id != engine.usageStats.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.primary.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+
             Section("关于") {
                 LabeledContent("版本号") {
                     Text(appVersionText)
@@ -71,11 +146,12 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 620, height: 760)
     }
 }
 
 #Preview {
     SettingsView()
+        .environmentObject(KeyPrefixEngine(settings: AppSettings()))
         .environmentObject(AppSettings())
 }

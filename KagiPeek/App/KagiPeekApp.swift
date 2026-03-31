@@ -24,6 +24,7 @@ struct KagiPeekApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(appDelegate.engine)
                 .environmentObject(appDelegate.settings)
         }
     }

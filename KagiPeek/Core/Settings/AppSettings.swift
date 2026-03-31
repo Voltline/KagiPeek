@@ -36,9 +36,31 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    enum OverlayColumnCount: Int, CaseIterable, Identifiable {
+        case one = 1
+        case two = 2
+        case three = 3
+
+        var id: Int { rawValue }
+
+        var title: String {
+            switch self {
+            case .one:
+                return "单列"
+            case .two:
+                return "双列"
+            case .three:
+                return "三列"
+            }
+        }
+
+        var columnCount: Int { rawValue }
+    }
+
     @Published var overlayHoldDelaySeconds: Double
     @Published var launchAtLoginEnabled: Bool
     @Published var keyDisplayStyle: KeyDisplayStyle
+    @Published var overlayColumnCount: OverlayColumnCount
     @Published var frequencySortOrder: FrequencySortOrder
     @Published var maxDisplayCount: Int
     @Published private(set) var launchAtLoginMessage: String = ""
@@ -50,6 +72,7 @@ final class AppSettings: ObservableObject {
         static let overlayHoldDelaySeconds = "settings.overlayHoldDelaySeconds"
         static let launchAtLoginEnabled = "settings.launchAtLoginEnabled"
         static let keyDisplayStyle = "settings.keyDisplayStyle"
+        static let overlayColumnCount = "settings.overlayColumnCount"
         static let frequencySortOrder = "settings.frequencySortOrder"
         static let maxDisplayCount = "settings.maxDisplayCount"
     }
@@ -64,6 +87,9 @@ final class AppSettings: ObservableObject {
         } else {
             keyDisplayStyle = .symbols
         }
+
+        let savedColumnCount = defaults.integer(forKey: Keys.overlayColumnCount)
+        overlayColumnCount = OverlayColumnCount(rawValue: savedColumnCount) ?? .one
 
         if let savedSortRaw = defaults.string(forKey: Keys.frequencySortOrder),
            let savedSortOrder = FrequencySortOrder(rawValue: savedSortRaw) {
@@ -96,6 +122,13 @@ final class AppSettings: ObservableObject {
             .dropFirst()
             .sink { [weak self] value in
                 self?.defaults.set(value.rawValue, forKey: Keys.keyDisplayStyle)
+            }
+            .store(in: &cancellables)
+
+        $overlayColumnCount
+            .dropFirst()
+            .sink { [weak self] value in
+                self?.defaults.set(value.rawValue, forKey: Keys.overlayColumnCount)
             }
             .store(in: &cancellables)
 
